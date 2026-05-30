@@ -96,7 +96,8 @@ async def predict(file: UploadFile = File(...)):
         
         with torch.no_grad():
             # 1. Obtenemos las 5 predicciones (una de cada fold)
-            scores = [m(tensor).item() for m in models_ensemble]
+            # Obtiene el índice (0-4) de la clase con mayor probabilidad para cada modelo
+            scores = [torch.argmax(m(tensor), dim=1).item() for m in models_ensemble]
             
             # 2. Promediamos el resultado (el corazón del Ensemble)
             regression_score = sum(scores) / len(scores)
@@ -115,10 +116,13 @@ async def predict(file: UploadFile = File(...)):
             "probabilities": {CLASSES[i]: round(prob * 100, 2) for i, prob in enumerate(probabilities)}
         }
     except Exception as e:
+        # Importa traceback al principio de tu archivo si no lo has hecho
+        import traceback
+        
+        print("--- 🔥 ERROR DETECTADO EN INFERENCIA ---")
+        traceback.print_exc() # Esto mostrará el error real en los logs de HF
+        
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
-        print("--- ERROR DETECTADO ---")
-        traceback.print_exc() # Esto imprimirá el error real en los logs de HF
-        return {"error": str(e)}, 500
     
 @app.get("/", response_class=FileResponse)
 async def serve_ui():
