@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diabetic Retinopathy Detection Matrix</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col justify-between font-sans">
+
+    <header class="border-b border-slate-800 bg-slate-900/50 backdrop-blur px-6 py-4">
+        <div class="max-w-5xl mx-auto flex justify-between items-center">
+            <div class="flex items-center space-x-3">
+                <span class="text-2xl">👁️</span>
+                <h1 class="text-xl font-bold tracking-tight bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
+                    HiSight // Retinal Diagnostics
+                </h1>
+            </div>
+            <span class="px-3 py-1 text-xs font-mono bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-full">
+                EfficientNet-B0 Live
+            </span>
+        </div>
+    </header>
+
+    <main class="max-w-5xl w-full mx-auto p-6 grid md:grid-cols-2 gap-8 items-start my-auto">
+        
+        <section class="bg-slate-800/40 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-6">
+            <div>
+                <h2 class="text-lg font-semibold text-slate-200">Fundus Image Ingestion</h2>
+                <p class="text-sm text-slate-400 mt-1">Upload a high-resolution retinal photograph to execute automated staging evaluation.</p>
+            </div>
+
+            <div id="dropzone" class="border-2 border-dashed border-slate-700 hover:border-blue-500/50 rounded-xl p-8 transition-all duration-200 cursor-pointer text-center bg-slate-900/30 group">
+                <input type="file" id="fileInput" accept="image/jpeg, image/png" class="hidden">
+                <div id="dropzone-prompt" class="space-y-3">
+                    <div class="text-4xl text-slate-500 group-hover:text-blue-400 transition-colors">📸</div>
+                    <p class="text-sm text-slate-300">Drag & drop retinal scan here, or <span class="text-blue-400 font-medium">browse local files</span></p>
+                    <p class="text-xs text-slate-500">Supports JPEG, PNG up to 10MB</p>
+                </div>
+                <img id="preview" class="hidden max-h-64 mx-auto rounded-lg shadow-md border border-slate-700">
+            </div>
+
+            <button id="analyzeBtn" disabled class="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 font-medium py-3 rounded-xl transition-all duration-150 flex justify-center items-center space-x-2 shadow-lg shadow-blue-600/10">
+                <span>Analyze Scan Matrix</span>
+            </button>
+        </section>
+
+        <section id="resultsWrapper" class="bg-slate-800/40 border border-slate-800 p-6 rounded-2xl shadow-xl min-h-[380px] flex flex-col justify-center transition-all duration-300">
+            <div id="idleState" class="text-center space-y-2 text-slate-500">
+                <span class="text-4xl block">📊</span>
+                <p class="text-sm">Awaiting diagnostic transmission...</p>
+            </div>
+
+            <div id="loadingState" class="hidden text-center space-y-4">
+                <div class="animate-spin rounded-full h-10 w-10 border-2 border-blue-500 border-t-transparent mx-auto"></div>
+                <p class="text-sm text-slate-400 font-mono">Computing vector classifications...</p>
+            </div>
+
+            <div id="activeState" class="hidden space-y-6">
+                <div class="flex justify-between items-center border-b border-slate-800 pb-4">
+                    <div>
+                        <h3 class="text-xs font-mono tracking-wider uppercase text-slate-400">Primary Diagnosis</h3>
+                        <p id="diagnosisOutput" class="text-2xl font-black mt-1 text-white">Severe DR</p>
+                    </div>
+                    <div class="text-right">
+                        <h3 class="text-xs font-mono tracking-wider uppercase text-slate-400">Confidence Metric</h3>
+                        <p id="confidenceOutput" class="text-2xl font-mono font-bold mt-1 text-blue-400">0.00%</p>
+                    </div>
+                </div>
+
+                <div class="space-y-4" id="matrixBars">
+                    </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="text-center py-4 border-t border-slate-800 text-xs text-slate-600 font-mono">
+        &copy; 2026 HySight Systems Engineering Ecosystem. Local API Integration Stack.
+    </footer>
+
+    <script>
+        const dropzone = document.getElementById('dropzone');
+        const fileInput = document.getElementById('fileInput');
+        const preview = document.getElementById('preview');
+        const dropzonePrompt = document.getElementById('dropzone-prompt');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        
+        const idleState = document.getElementById('idleState');
+        const loadingState = document.getElementById('loadingState');
+        const activeState = document.getElementById('activeState');
+        
+        const diagnosisOutput = document.getElementById('diagnosisOutput');
+        const confidenceOutput = document.getElementById('confidenceOutput');
+        const matrixBars = document.getElementById('matrixBars');
+
+        let targetedFile = null;
+
+        // Click Trigger Routing
+        dropzone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (e) => stageFile(e.target.files[0]));
+
+        // Drag Drop Interactive Interception
+        ['dragenter', 'dragover'].forEach(name => {
+            dropzone.addEventListener(name, (e) => { e.preventDefault(); dropzone.classList.add('border-blue-500', 'bg-slate-900/60'); }, false);
+        });
+        ['dragleave', 'drop'].forEach(name => {
+            dropzone.addEventListener(name, (e) => { e.preventDefault(); dropzone.classList.remove('border-blue-500', 'bg-slate-900/60'); }, false);
+        });
+        dropzone.addEventListener('drop', (e) => stageFile(e.dataTransfer.files[0]));
+
+        function stageFile(file) {
+            if (!file || !file.type.startsWith('image/')) return;
+            targetedFile = file;
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                preview.src = e.target.result;
+                preview.classList.remove('hidden');
+                dropzonePrompt.classList.add('hidden');
+                analyzeBtn.disabled = false;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // Execution Request Processing
+        analyzeBtn.addEventListener('click', async () => {
+            if (!targetedFile) return;
+
+            // Toggle Visual States
+            idleState.classList.add('hidden');
+            activeState.classList.add('hidden');
+            loadingState.classList.remove('hidden');
+            analyzeBtn.disabled = true;
+
+            const formData = new FormData();
+            formData.append('file', targetedFile);
+
+            try {
+                // Dynamically queries the local path since frontend and backend share the same domain destination
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) throw new Error('API Transmission Exception.');
+                const data = await response.json();
+
+                // Update text fields
+                diagnosisOutput.textContent = data.diagnosis;
+                confidenceOutput.textContent = `${data.confidence.toFixed(2)}%`;
+
+                // Render dynamic colored distribution curves
+                matrixBars.innerHTML = '';
+                Object.entries(data.probabilities).forEach(([className, value]) => {
+                    const isTarget = className === data.diagnosis;
+                    const barColor = isTarget ? 'bg-blue-500' : 'bg-slate-700';
+                    const textColor = isTarget ? 'text-blue-400 font-bold' : 'text-slate-400';
+
+                    matrixBars.innerHTML += `
+                        <div class="space-y-1">
+                            <div class="flex justify-between text-xs font-mono ${textColor}">
+                                <span>${className}</span>
+                                <span>${value.toFixed(2)}%</span>
+                            </div>
+                            <div class="w-full bg-slate-900/60 h-2 rounded-full overflow-hidden border border-slate-800/50">
+                                <div class="${barColor} h-full transition-all duration-500" style="width: ${value}%"></div>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                loadingState.classList.add('hidden');
+                activeState.classList.remove('hidden');
+            } catch (err) {
+                alert('Inference Execution Failed: ' + err.message);
+                idleState.classList.remove('hidden');
+                loadingState.classList.add('hidden');
+            } finally {
+                analyzeBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
