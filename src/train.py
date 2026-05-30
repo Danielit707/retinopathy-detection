@@ -17,20 +17,16 @@ def train_one_epoch(model, dataloader, criterion, optimizer, scaler, device):
     
     for images, labels in dataloader:
         images, labels = images.to(device), labels.to(device)
-        
         optimizer.zero_grad()
         
-        # Forward pass using Mixed Precision to optimize VRAM
         with torch.amp.autocast(device_type="cuda"):
             outputs = model(images)
             loss = criterion(outputs, labels)
             
-        # Backward pass with scaled gradients
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
         
-        # Metrics tracking
         running_loss += loss.item() * images.size(0)
         _, preds = torch.max(outputs, 1)
         correct_predictions += torch.sum(preds == labels.data)
@@ -63,70 +59,82 @@ def validate(model, dataloader, criterion, device):
     val_acc = correct_predictions.double() / total_samples
     return val_loss, val_acc
 
-def main():
-    # Hyperparameters
-    BATCH_SIZE = 16
-    EPOCHS = 5
-    LEARNING_RATE = 0.001
+def run_fold(fold_idx, device, img_dir, batch_size, epochs, lr):
+    print(f"\n=================== 🏁 STARTING FOLD [{fold_idx}/5] ===================")
     
-    # Path configurations relative to project root
-    TRAIN_CSV = os.path.join("data", "train.csv")
-    VAL_CSV = os.path.join("data", "val.csv")
-    IMG_DIR = os.path.join("data", "raw")
-    WEIGHTS_PATH = os.path.join("weights", "best_efficientnet.pth")
+    # Dynamic paths for the current fold
+    train_csv = os.path.join("data", "folds", f"train_fold_{fold_idx}.csv")
+    val_csv = os.path.join("data", "folds", f"val_fold_{fold_idx}.csv")
+    weights_path = os.path.join("weights", f"best_efficientnet_fold_{fold_idx}.pth")
     
-    # Runtime Hardware Setup
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
-    if device.type == "cuda":
-        print(f"GPU Name: {torch.cuda.get_device_name(0)}")
-        
-    # Balanced loss setup to combat severe class distribution skewness
-    print("Calculating class weights to counter dataset imbalance...")
-    train_df = pd.read_csv(TRAIN_CSV)
+    # Calculate class weights specific to this fold's training distribution
+    train_df = pd.read_csv(train_csv)
     y_train = train_df['diagnosis'].values
     unique_classes = np.unique(y_train)
-    
-    calculated_weights = compute_class_weight(
-        class_weight='balanced', 
-        classes=unique_classes, 
-        y=y_train
-    )
+    calculated_weights = compute_class_weight(class_weight='balanced', classes=unique_classes, y=y_train)
     class_weights = torch.tensor(calculated_weights, dtype=torch.float).to(device)
-    print(f"Class weights strictly enforced: {calculated_weights}")
-        
-    # Get optimized PyTorch DataLoaders
+    
+    # Load optimized DataLoaders
     train_loader, val_loader = get_data_loaders(
-        train_csv=TRAIN_CSV,
-        val_csv=VAL_CSV,
-        img_dir=IMG_DIR,
-        batch_size=BATCH_SIZE
+        train_csv=train_csv, val_csv=val_csv, img_dir=img_dir, batch_size=batch_size
     )
     
-    # Initialization
+    # CRITICAL: Re-initialize fresh model instance per fold to avoid data leakage
     model = RetinopathyEfficientNet(num_classes=5, pretrained=True).to(device)
-    criterion = nn.CrossEntropyLoss(weight=class_weights) # Injected penalization weights
-    optimizer = optim.Adam(model.backbone.classifier.parameters(), lr=LEARNING_RATE)
-    scaler = torch.amp.GradScaler("cuda") # Positional setup to avoid syntax mismatches
+    criterion = nn.CrossEntropyLoss(weight=class_weights)
+    optimizer = optim.Adam(model.backbone.classifier.parameters(), lr=lr)
+    scaler = torch.amp.GradScaler("cuda")
     
     best_acc = 0.0
     
-    print("\n--- Starting Training Pipeline ---")
-    for epoch in range(EPOCHS):
+    for epoch in range(epochs):
         train_loss, train_acc = train_one_epoch(model, train_loader, criterion, optimizer, scaler, device)
         val_loss, val_acc = validate(model, val_loader, criterion, device)
         
-        print(f"Epoch [{epoch+1}/{EPOCHS}] "
+        print(f"Fold {fold_idx} | Epoch [{epoch+1}/{epochs}] -> "
               f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f} | "
               f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}")
               
-        # Keep track and save optimal weights checkpoint
         if val_acc > best_acc:
             best_acc = val_acc
-            torch.save(model.state_dict(), WEIGHTS_PATH)
-            print(f"-> Saved new best model checkpoint to {WEIGHTS_PATH}")
+            torch.save(model.state_dict(), weights_path)
+            print(f"   -> Saved new best model checkpoint for Fold {fold_idx} to {weights_path}")
             
-    print("\nTraining test pipeline completed successfully!")
+    print(f"=================== 🟥 FINISHED FOLD [{fold_idx}/5] Best Val Acc: {best_acc:.4f} ===================\n")
+    return best_acc
+
+def main():
+    # Global Hyperparameters
+    BATCH_SIZE = 16
+    EPOCHS = 5
+    LEARNING_RATE = 0.001
+    NUM_FOLDS = 5
+    
+    IMG_DIR = os.path.join("data", "raw")
+    os.makedirs("weights", exist_ok=True)
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using architecture hardware device: {device}")
+    if device.type == "cuda":
+        print(f"GPU Node Name: {torch.cuda.get_device_name(0)}")
+        
+    fold_scores = []
+    
+    # Loop over all the generated cross-validation folds
+    for fold in range(NUM_FOLDS):
+        best_fold_acc = run_fold(
+            fold_idx=fold, 
+            device=device, 
+            img_dir=IMG_DIR, 
+            batch_size=BATCH_SIZE, 
+            epochs=EPOCHS, 
+            lr=LEARNING_RATE
+        )
+        fold_scores.append(best_fold_acc.item() if torch.is_tensor(best_fold_acc) else best_fold_acc)
+        
+    print("\n--- 🏆 CROSS-VALIDATION PIPELINE COMPLETE 🏆 ---")
+    print(f"All fold accuracies: {fold_scores}")
+    print(f"Mean CV Accuracy: {np.mean(fold_scores):.4f} (+/- {np.std(fold_scores):.4f})")
 
 if __name__ == "__main__":
     main()
