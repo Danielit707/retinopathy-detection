@@ -116,6 +116,9 @@ async def predict(file: UploadFile = File(...)):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
+        print("--- ERROR DETECTADO ---")
+        traceback.print_exc() # Esto imprimirá el error real en los logs de HF
+        return {"error": str(e)}, 500
     
 @app.get("/", response_class=FileResponse)
 async def serve_ui():
