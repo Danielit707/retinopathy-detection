@@ -77,13 +77,15 @@ def run_fold(fold_idx, device, img_dir, batch_size, epochs, lr):
     )
     
     model = RetinopathyEfficientNet(num_classes=5, pretrained=True).to(device)
-    criterion = nn.CrossEntropyLoss(weight=class_weights)
     
-    # Differential learning rates: 10x lower learning rate for the backbone features to keep training stable
-    optimizer = optim.Adam([
+    # CrossEntropy upgraded with label smoothing to deal with highly subjective bordering stages
+    criterion = nn.CrossEntropyLoss(weight=class_weights, label_smoothing=0.1)
+    
+    # Upgraded to AdamW for superior weight decay mechanics during backpropagation fine-tuning
+    optimizer = optim.AdamW([
         {'params': model.backbone.features[6:].parameters(), 'lr': lr * 0.1},
         {'params': model.backbone.classifier.parameters(), 'lr': lr}
-    ])
+    ], weight_decay=1e-4)
     
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs)
     scaler = torch.amp.GradScaler("cuda")
@@ -95,7 +97,7 @@ def run_fold(fold_idx, device, img_dir, batch_size, epochs, lr):
         val_loss, val_acc = validate(model, val_loader, criterion, device)
         
         scheduler.step()
-        current_lr = optimizer.param_groups[1]['lr'] # Tracks classification head LR
+        current_lr = optimizer.param_groups[1]['lr']
         
         print(f"Fold {fold_idx} | Epoch [{epoch+1}/{epochs}] | Head LR: {current_lr:.6f} -> "
               f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f} | "
