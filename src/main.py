@@ -1,8 +1,7 @@
-# src/main.py
 import io
 import os
-import math
 import torch
+import traceback
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
@@ -22,7 +21,6 @@ app.add_middleware(
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(CURRENT_DIR)
-# Ahora apuntamos a la carpeta, no a un solo archivo
 WEIGHTS_DIR = os.path.join(PROJECT_ROOT, "weights")
 
 CLASSES = {
@@ -35,7 +33,6 @@ CLASSES = {
 
 device = torch.device("cpu")
 
-# --- NUEVA FUNCIÓN AUXILIAR DE CARGA ---
 def load_single_model(path):
     if not os.path.exists(path):
         raise FileNotFoundError(f"Weights file not found: '{path}'")
@@ -51,7 +48,7 @@ def load_single_model(path):
     
     model.classifier[1] = torch.nn.Sequential(
         torch.nn.Linear(in_features, hidden_features),
-        torch.nn.Identity(),
+        torch.nn.Identity(), 
         torch.nn.Identity(),
         torch.nn.Linear(hidden_features, out_features)
     )
@@ -61,18 +58,17 @@ def load_single_model(path):
     model.eval()
     return model
 
-# --- NUEVA FUNCIÓN PARA EL ENSEMBLE ---
 def load_ensemble():
     models_ensemble = []
-    print(f"-> Cargando Ensemble desde: {WEIGHTS_DIR}")
+    print(f"-> Loading Ensemble from target directory: {WEIGHTS_DIR}")
     for i in range(5):
         path = os.path.join(WEIGHTS_DIR, f"best_efficientnet_fold_{i}.pth")
-        print(f"   - Cargando fold {i}...")
+        print(f"   - Loading evaluation check fold {i}...")
         models_ensemble.append(load_single_model(path))
-    print("-> Ensemble cargado exitosamente.")
+    print("-> Ensemble architecture loaded successfully.")
     return models_ensemble
 
-# Inicializar los 5 modelos
+# Initialize ensemble array
 models_ensemble = load_ensemble()
 
 transform = transforms.Compose([
@@ -95,33 +91,53 @@ async def predict(file: UploadFile = File(...)):
         tensor = transform(image).unsqueeze(0).to(device)
         
         with torch.no_grad():
-            # 1. Obtenemos las 5 predicciones (una de cada fold)
-            # Obtiene el índice (0-4) de la clase con mayor probabilidad para cada modelo
-            scores = [torch.argmax(m(tensor), dim=1).item() for m in models_ensemble]
+            # Create placeholder for accumulating softmax probabilities across models
+            ensemble_probs = torch.zeros((1, 5), device=device)
             
-            # 2. Promediamos el resultado (el corazón del Ensemble)
-            regression_score = sum(scores) / len(scores)
+            for model in models_ensemble:
+                logits = model(tensor)
+                probs = torch.softmax(logits, dim=1)
+                ensemble_probs += probs
             
-            # 3. Lógica de redondeo y probabilidades igual a la que tenías
-            prediction = int(max(0, min(4, round(regression_score))))
+            # Compute final mathematical mean distribution
+            ensemble_probs /= len(models_ensemble)
+            ensemble_probs = ensemble_probs.squeeze(0).tolist()
             
-            raw_similarities = [math.exp(-((regression_score - i) ** 2) / 0.6) for i in range(5)]
-            total_similarity = sum(raw_similarities)
-            probabilities = [sim / total_similarity for sim in raw_similarities]
+            # Final prediction is the index containing maximum density
+            prediction = ensemble_probs.index(max(ensemble_probs))
+            confidence = ensemble_probs[prediction] * 100
             
+            # --- CLINICAL RISK ANALYSIS SYSTEM ---
+            # Sum probability of any positive sign of Retinopathy (Classes 1, 2, 3, 4)
+            total_retinopathy_risk = sum(ensemble_probs[1:])
+            
+            risk_warning = False
+            warning_message = "Normal case parameter clearance."
+            
+            # Risk Mitigation Trigger: If predicted 'Healthy' but alternative DR traces exceed 15%
+            RISK_THRESHOLD = 0.15 
+            if prediction == 0 and total_retinopathy_risk > RISK_THRESHOLD:
+                risk_warning = True
+                warning_message = (
+                    f"Warning: Borderline Clinical Detection. Although the primary classification is "
+                    f"Healthy, the ensemble detects a cumulative risk of {total_retinopathy_risk * 100:.2f}% "
+                    f"pointing toward early-stage diabetic retinopathy. Secondary screening is recommended."
+                )
+                
         return {
             "class_id": prediction,
             "diagnosis": CLASSES[prediction],
-            "confidence": round(probabilities[prediction] * 100, 2),
-            "probabilities": {CLASSES[i]: round(prob * 100, 2) for i, prob in enumerate(probabilities)}
+            "confidence": round(confidence, 2),
+            "probabilities": {CLASSES[i]: round(prob * 100, 2) for i, prob in enumerate(ensemble_probs)},
+            "risk_analysis": {
+                "risk_warning_triggered": risk_warning,
+                "cumulative_dr_probability": round(total_retinopathy_risk * 100, 2),
+                "message": warning_message
+            }
         }
     except Exception as e:
-        # Importa traceback al principio de tu archivo si no lo has hecho
-        import traceback
-        
-        print("--- 🔥 ERROR DETECTADO EN INFERENCIA ---")
-        traceback.print_exc() # Esto mostrará el error real en los logs de HF
-        
+        print("--- 🔥 INFERENCE EXECUTION FAILURE ---")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
     
 @app.get("/", response_class=FileResponse)

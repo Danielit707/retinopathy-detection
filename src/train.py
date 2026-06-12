@@ -1,4 +1,3 @@
-# src/train.py
 import os
 import numpy as np
 import pandas as pd
@@ -79,9 +78,13 @@ def run_fold(fold_idx, device, img_dir, batch_size, epochs, lr):
     
     model = RetinopathyEfficientNet(num_classes=5, pretrained=True).to(device)
     criterion = nn.CrossEntropyLoss(weight=class_weights)
-    optimizer = optim.Adam(model.backbone.classifier.parameters(), lr=lr)
     
-    # Cosine Scheduler dynamic fine-tuning across the 15 epochs
+    # Differential learning rates: 10x lower learning rate for the backbone features to keep training stable
+    optimizer = optim.Adam([
+        {'params': model.backbone.features[6:].parameters(), 'lr': lr * 0.1},
+        {'params': model.backbone.classifier.parameters(), 'lr': lr}
+    ])
+    
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs)
     scaler = torch.amp.GradScaler("cuda")
     
@@ -91,11 +94,10 @@ def run_fold(fold_idx, device, img_dir, batch_size, epochs, lr):
         train_loss, train_acc = train_one_epoch(model, train_loader, criterion, optimizer, scaler, device)
         val_loss, val_acc = validate(model, val_loader, criterion, device)
         
-        # Step the learning rate decay schedule
         scheduler.step()
-        current_lr = optimizer.param_groups[0]['lr']
+        current_lr = optimizer.param_groups[1]['lr'] # Tracks classification head LR
         
-        print(f"Fold {fold_idx} | Epoch [{epoch+1}/{epochs}] | LR: {current_lr:.6f} -> "
+        print(f"Fold {fold_idx} | Epoch [{epoch+1}/{epochs}] | Head LR: {current_lr:.6f} -> "
               f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f} | "
               f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}")
               
@@ -108,7 +110,6 @@ def run_fold(fold_idx, device, img_dir, batch_size, epochs, lr):
     return best_acc
 
 def main():
-    # Back to the preferred configurations: 15 full epochs
     BATCH_SIZE = 16
     EPOCHS = 15
     LEARNING_RATE = 0.001
@@ -118,7 +119,7 @@ def main():
     os.makedirs("weights", exist_ok=True)
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using architecture hardware device: {device}")
+    print(f"Using architectural hardware device: {device}")
     if device.type == "cuda":
         print(f"GPU Node Name: {torch.cuda.get_device_name(0)}")
         

@@ -1,4 +1,3 @@
-# src/model.py
 import torch
 import torch.nn as nn
 import torchvision.models as models
@@ -11,11 +10,15 @@ class RetinopathyEfficientNet(nn.Module):
         weights = models.EfficientNet_B0_Weights.DEFAULT if pretrained else None
         self.backbone = models.efficientnet_b0(weights=weights)
         
-        # Freeze the feature extractor parameters to preserve Transfer Learning features
+        # Freeze early layers to preserve fundamental low-level features (edges, textures)
         for param in self.backbone.parameters():
             param.requires_grad = False
             
-        # Get the input feature count for the original classifier
+        # Unfreeze deep feature blocks (Blocks 6 and 7) for specialized medical domain adaptation
+        for param in self.backbone.features[6:].parameters():
+            param.requires_grad = True
+            
+        # Extract the input feature count from the original classification layer
         in_features = self.backbone.classifier[1].in_features
         
         # Custom Multi-Layer Perceptron classifier head
