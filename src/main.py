@@ -1,15 +1,26 @@
+#src/main.py
 import io
 import os
+import sys
 import torch
 import traceback
-from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
+
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.responses import FileResponse
+from sqlalchemy.orm import Session
 import torchvision.transforms as transforms
 import torchvision.models as models
-from fastapi.responses import FileResponse
 
-app = FastAPI(title="APTOS 2019 - Retinopathy Detection API (Ensemble)")
+# Automatically append the current directory to Python's search path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Import database and authentication components from auth.py
+from auth import get_db, User, ScanHistory, hash_password, verify_password
+
+app = FastAPI(title="APTOS 2019 - Retinopathy Detection API (Ensemble & Auth)")
 
 app.add_middleware(
     CORSMiddleware,
@@ -18,6 +29,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- THE CRITICAL CACHE POISONING FIX ---
+class NonInteractiveHTTPBasic(HTTPBasic):
+    async def __call__(self, request: Request):
+        try:
+            return await super().__call__(request)
+        except HTTPException as exc:
+            # Prevent the browser from intercepting the 401 error and caching bad credentials
+            if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+                exc.headers["WWW-Authenticate"] = "X-Basic"
+            raise exc
+
+security = NonInteractiveHTTPBasic()
+# ----------------------------------------
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(CURRENT_DIR)
@@ -77,8 +102,68 @@ transform = transforms.Compose([
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
 
+# --- CONTROLADOR DE AUTENTICACIÓN (DI) ---
+def get_current_user(credentials: HTTPBasicCredentials = Depends(security), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == credentials.username).first()
+    if not user or not verify_password(credentials.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "X-Basic"}, # Ensure X-Basic is enforced here too
+        )
+    return user
+
+# --- RUTAS DE AUTENTICACIÓN Y REGISTRO ---
+
+@app.post("/auth/register", status_code=status.HTTP_201_CREATED)
+def register(credentials: HTTPBasicCredentials, db: Session = Depends(get_db)):
+    existing_user = db.query(User).filter(User.email == credentials.username).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Email already registered.")
+    
+    new_user = User(
+        email=credentials.username, 
+        hashed_password=hash_password(credentials.password)
+    )
+    db.add(new_user)
+    db.commit()
+    return {"message": "User registered successfully"}
+
+@app.post("/auth/login")
+def login(current_user: User = Depends(get_current_user)):
+    return {
+        "message": "Login successful",
+        "user": current_user.email
+    }
+
+# --- RUTA DE HISTORIAL CLINICO POR USUARIO ---
+
+@app.get("/history")
+def get_user_history(current_user: User = Depends(get_current_user)):
+    # Retorna el listado de análisis realizados por el usuario ordenados de más reciente a más antiguo
+    sorted_scans = sorted(current_user.scans, key=lambda x: x.scanned_at, reverse=True)
+    return {
+        "user": current_user.email,
+        "total_scans_recorded": len(sorted_scans),
+        "history": [
+            {
+                "scan_id": scan.id,
+                "class_id": scan.diagnosis_class,
+                "diagnosis": scan.diagnosis_text,
+                "confidence": round(scan.confidence, 2),
+                "scanned_at_utc": scan.scanned_at
+            } for scan in sorted_scans
+        ]
+    }
+
+# --- PROCESAMIENTO E INFERENCIA AUTOMÁTICAMENTE MONITOREADA ---
+
 @app.post("/predict")
-async def predict(file: UploadFile = File(...)):
+async def predict(
+    file: UploadFile = File(...), 
+    current_user: User = Depends(get_current_user), 
+    db: Session = Depends(get_db)
+):
     if not models_ensemble:
         raise HTTPException(status_code=500, detail="Models not initialized.")
     
@@ -91,7 +176,6 @@ async def predict(file: UploadFile = File(...)):
         tensor = transform(image).unsqueeze(0).to(device)
         
         with torch.no_grad():
-            # Create placeholder for accumulating softmax probabilities across models
             ensemble_probs = torch.zeros((1, 5), device=device)
             
             for model in models_ensemble:
@@ -99,22 +183,17 @@ async def predict(file: UploadFile = File(...)):
                 probs = torch.softmax(logits, dim=1)
                 ensemble_probs += probs
             
-            # Compute final mathematical mean distribution
             ensemble_probs /= len(models_ensemble)
             ensemble_probs = ensemble_probs.squeeze(0).tolist()
             
-            # Final prediction is the index containing maximum density
             prediction = ensemble_probs.index(max(ensemble_probs))
             confidence = ensemble_probs[prediction] * 100
             
-            # --- CLINICAL RISK ANALYSIS SYSTEM ---
-            # Sum probability of any positive sign of Retinopathy (Classes 1, 2, 3, 4)
             total_retinopathy_risk = sum(ensemble_probs[1:])
             
             risk_warning = False
             warning_message = "Normal case parameter clearance."
             
-            # Risk Mitigation Trigger: If predicted 'Healthy' but alternative DR traces exceed 15%
             RISK_THRESHOLD = 0.15 
             if prediction == 0 and total_retinopathy_risk > RISK_THRESHOLD:
                 risk_warning = True
@@ -123,6 +202,16 @@ async def predict(file: UploadFile = File(...)):
                     f"Healthy, the ensemble detects a cumulative risk of {total_retinopathy_risk * 100:.2f}% "
                     f"pointing toward early-stage diabetic retinopathy. Secondary screening is recommended."
                 )
+        
+        # 💾 AUTOMATIC REGISTER IN DATABASE
+        scan_log = ScanHistory(
+            user_id=current_user.id,
+            diagnosis_class=prediction,
+            diagnosis_text=CLASSES[prediction],
+            confidence=float(confidence)
+        )
+        db.add(scan_log)
+        db.commit()
                 
         return {
             "class_id": prediction,
@@ -142,7 +231,7 @@ async def predict(file: UploadFile = File(...)):
     
 @app.get("/", response_class=FileResponse)
 async def serve_ui():
-    ui_path = os.path.join("src", "static", "index.html")
+    ui_path = os.path.join(CURRENT_DIR, "static", "index.html")
     if not os.path.exists(ui_path):
         raise HTTPException(status_code=404, detail="UI file not found.")
     return ui_path
