@@ -9,20 +9,54 @@
 <body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col justify-between font-sans">
 
     <header class="border-b border-slate-800 bg-slate-900/50 backdrop-blur px-6 py-4">
-        <div class="max-w-5xl mx-auto flex justify-between items-center">
+        <div class="max-w-6xl mx-auto flex justify-between items-center">
             <div class="flex items-center space-x-3">
                 <span class="text-2xl">👁️</span>
                 <h1 class="text-xl font-bold tracking-tight bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
                     HiSight // Retinal Diagnostics
                 </h1>
             </div>
-            <span class="px-3 py-1 text-xs font-mono bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-full">
-                EfficientNet-B0 Live
-            </span>
+            <div class="flex items-center space-x-4">
+                <span class="px-3 py-1 text-xs font-mono bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-full">
+                    EfficientNet Ensemble Live
+                </span>
+                <button id="logoutBtn" class="hidden text-xs text-slate-400 hover:text-rose-400 border border-slate-800 hover:border-rose-500/20 px-3 py-1.5 rounded-lg transition-colors font-mono">
+                    LOGOUT
+                </button>
+            </div>
         </div>
     </header>
 
-    <main class="max-w-5xl w-full mx-auto p-6 grid md:grid-cols-2 gap-8 items-start my-auto">
+    <div id="authView" class="max-w-md w-full mx-auto p-6 my-auto">
+        <div class="bg-slate-800/40 border border-slate-800 p-8 rounded-2xl shadow-2xl space-y-6">
+            <div class="text-center">
+                <h2 id="authTitle" class="text-xl font-bold text-slate-200">System Gateway</h2>
+                <p id="authSubtitle" class="text-xs text-slate-400 mt-1">Authenticate to synchronize medical scan histories</p>
+            </div>
+
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs font-mono tracking-wider uppercase text-slate-400 mb-1.5">Email Address / Username</label>
+                    <input type="email" id="authEmail" placeholder="doctor@hospital.com" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 text-white transition-colors">
+                </div>
+                <div>
+                    <label class="block text-xs font-mono tracking-wider uppercase text-slate-400 mb-1.5">Security Password</label>
+                    <input type="password" id="authPassword" placeholder="••••••••" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 text-white transition-colors">
+                </div>
+            </div>
+
+            <div class="space-y-3 pt-2">
+                <button id="authPrimaryBtn" class="w-full bg-blue-600 hover:bg-blue-500 font-medium py-3 rounded-xl transition-all duration-150 shadow-lg shadow-blue-600/10 text-sm">
+                    Access Portal
+                </button>
+                <button id="authToggleBtn" class="w-full text-xs text-slate-400 hover:text-blue-400 transition-colors font-mono py-1">
+                    Need an account? Register system node
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <main id="appView" class="hidden max-w-6xl w-full mx-auto p-6 grid lg:grid-cols-3 gap-8 items-start my-auto">
         
         <section class="bg-slate-800/40 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-6">
             <div>
@@ -68,38 +102,194 @@
                     </div>
                 </div>
 
-                <div class="space-y-4" id="matrixBars">
-                    </div>
+                <div class="space-y-4" id="matrixBars"></div>
             </div>
+        </section>
+
+        <section class="bg-slate-800/40 border border-slate-800 p-6 rounded-2xl shadow-xl flex flex-col h-[380px]">
+            <div class="border-b border-slate-800 pb-3 mb-4 flex justify-between items-center">
+                <h2 class="text-sm font-mono font-semibold text-slate-300 tracking-wider uppercase">Patient Scanning History</h2>
+                <span id="historyCount" class="text-xs bg-slate-900 border border-slate-800 px-2 py-0.5 rounded text-slate-400 font-mono">0 records</span>
+            </div>
+            
+            <div id="historyContainer" class="flex-1 overflow-y-auto space-y-3 pr-1 text-slate-400 text-sm">
+                </div>
         </section>
     </main>
 
     <footer class="text-center py-4 border-t border-slate-800 text-xs text-slate-600 font-mono">
-        &copy; 2026 HySight Systems Engineering Ecosystem. Local API Integration Stack.
+        &copy; 2026 HiSight Systems Engineering Ecosystem. Local API Integration Stack.
     </footer>
 
     <script>
+        // App Views Layout Toggles
+        const authView = document.getElementById('authView');
+        const appView = document.getElementById('appView');
+        const logoutBtn = document.getElementById('logoutBtn');
+
+        // Auth Controls
+        const authTitle = document.getElementById('authTitle');
+        const authSubtitle = document.getElementById('authSubtitle');
+        const authEmail = document.getElementById('authEmail');
+        const authPassword = document.getElementById('authPassword');
+        const authPrimaryBtn = document.getElementById('authPrimaryBtn');
+        const authToggleBtn = document.getElementById('authToggleBtn');
+
+        // Core Image Handling Targets
         const dropzone = document.getElementById('dropzone');
         const fileInput = document.getElementById('fileInput');
         const preview = document.getElementById('preview');
         const dropzonePrompt = document.getElementById('dropzone-prompt');
         const analyzeBtn = document.getElementById('analyzeBtn');
         
+        // Diagnostic Response States
         const idleState = document.getElementById('idleState');
         const loadingState = document.getElementById('loadingState');
         const activeState = document.getElementById('activeState');
-        
         const diagnosisOutput = document.getElementById('diagnosisOutput');
         const confidenceOutput = document.getElementById('confidenceOutput');
         const matrixBars = document.getElementById('matrixBars');
 
-        let targetedFile = null;
+        // History UI Components
+        const historyContainer = document.getElementById('historyContainer');
+        const historyCount = document.getElementById('historyCount');
 
-        // Click Trigger Routing
+        // Internal State Engine variables
+        let targetedFile = null;
+        let isRegisterState = false;
+        let basicAuthHeader = localStorage.getItem('hisight_auth');
+
+        // Initialize App Configuration state
+        if (basicAuthHeader) {
+            transitionToWorkspace();
+        }
+
+        /* ================= AUTHENTICATION SUBSYSTEM WORKFLOW ================= */
+        authToggleBtn.addEventListener('click', () => {
+            isRegisterState = !isRegisterState;
+            authTitle.textContent = isRegisterState ? "Create System Node" : "System Gateway";
+            authSubtitle.textContent = isRegisterState ? "Register new administrative diagnostic authorization" : "Authenticate to synchronize medical scan histories";
+            authPrimaryBtn.textContent = isRegisterState ? "Register System Node" : "Access Portal";
+            authToggleBtn.textContent = isRegisterState ? "Return to Secure Gateway Login" : "Need an account? Register system node";
+        });
+
+        authPrimaryBtn.addEventListener('click', async () => {
+            const user = authEmail.value.trim();
+            const pass = authPassword.value;
+
+            if (!user || !pass) {
+                alert('Please enter credentials into the target parameters.');
+                return;
+            }
+
+            if (isRegisterState) {
+                // Submit to Registration Endpoint
+                try {
+                    const response = await fetch('/auth/register', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username: user, password: pass })
+                    });
+                    if (!response.ok) {
+                        const errData = await response.json();
+                        throw new Error(errData.detail || 'Registration node validation exception.');
+                    }
+                    alert('Registration Successful! Logging your profile into security vault...');
+                    executeAuthLogin(user, pass);
+                } catch (err) {
+                    alert('Registration Rejected: ' + err.message);
+                }
+            } else {
+                executeAuthLogin(user, pass);
+            }
+        });
+
+        function executeAuthLogin(user, pass) {
+            // Encode basic credentials parameters safely inside client memory
+            const token = btoa(`${user}:${pass}`);
+            basicAuthHeader = `Basic ${token}`;
+            
+            // Validate against history endpoint before completely unlocking pipeline
+            fetchHistoryRecords(basicAuthHeader).then(success => {
+                if (success) {
+                    localStorage.setItem('hisight_auth', basicAuthHeader);
+                    transitionToWorkspace();
+                } else {
+                    alert('Access Denied: Invalid security credentials or unauthorized node.');
+                    basicAuthHeader = null;
+                }
+            });
+        }
+
+        function transitionToWorkspace() {
+            authView.classList.add('hidden');
+            appView.classList.remove('hidden');
+            logoutBtn.classList.remove('hidden');
+            fetchHistoryRecords(basicAuthHeader);
+        }
+
+        logoutBtn.addEventListener('click', () => {
+            localStorage.removeItem('hisight_auth');
+            basicAuthHeader = null;
+            appView.classList.add('hidden');
+            logoutBtn.classList.add('hidden');
+            authView.classList.remove('hidden');
+            authEmail.value = '';
+            authPassword.value = '';
+        });
+
+
+        /* ================= MEDICAL DATA RETRIEVAL WORKFLOW ================= */
+        async function fetchHistoryRecords(authKey) {
+            try {
+                const response = await fetch('/history', {
+                    method: 'GET',
+                    headers: { 'Authorization': authKey }
+                });
+                if (!response.ok) return false;
+                
+                const data = await response.json();
+                renderHistoryUI(data.records || data); // Accounts for raw list models structure variations
+                return true;
+            } catch (err) {
+                console.error('History Sync Error:', err);
+                return false;
+            }
+        }
+
+        function renderHistoryUI(records) {
+            historyCount.textContent = `${records.length} record${records.length === 1 ? '' : 's'}`;
+            if (!records || records.length === 0) {
+                historyContainer.innerHTML = `
+                    <div class="h-full flex flex-col items-center justify-center text-slate-600 text-center space-y-1 py-12">
+                        <span>📁</span>
+                        <p class="text-xs">No active records saved inside this node.</p>
+                    </div>`;
+                return;
+            }
+
+            historyContainer.innerHTML = records.map(rec => {
+                const date = new Date(rec.scanned_at || rec.timestamp).toLocaleString();
+                return `
+                    <div class="bg-slate-950/40 border border-slate-800/60 p-3 rounded-xl flex justify-between items-center text-xs">
+                        <div class="space-y-0.5">
+                            <span class="font-bold text-slate-200 block">${rec.diagnosis_text || rec.diagnosis}</span>
+                            <span class="text-[10px] text-slate-500 font-mono block">${date}</span>
+                        </div>
+                        <span class="font-mono bg-blue-500/5 border border-blue-500/10 text-blue-400 px-2 py-0.5 rounded">
+                            ${(rec.confidence).toFixed(1)}%
+                        </span>
+                    </div>`;
+            }).join('');
+        }
+
+
+        /* ================= CORE DIAGNOSTIC FILE PIPELINE ================= */
+        // Click Routing Trigger
         dropzone.addEventListener('click', () => fileInput.click());
         fileInput.addEventListener('change', (e) => stageFile(e.target.files[0]));
 
-        // Drag Drop Interactive Interception
+        // Drag Drop Event Interceptors
         ['dragenter', 'dragover'].forEach(name => {
             dropzone.addEventListener(name, (e) => { e.preventDefault(); dropzone.classList.add('border-blue-500', 'bg-slate-900/60'); }, false);
         });
@@ -122,11 +312,11 @@
             reader.readAsDataURL(file);
         }
 
-        // Execution Request Processing
+        // Execution Request Processing via Authenticated Request Channels
         analyzeBtn.addEventListener('click', async () => {
             if (!targetedFile) return;
 
-            // Toggle Visual States
+            // Toggle Visual Matrix Component States
             idleState.classList.add('hidden');
             activeState.classList.add('hidden');
             loadingState.classList.remove('hidden');
@@ -136,20 +326,23 @@
             formData.append('file', targetedFile);
 
             try {
-                // Dynamically queries the local path since frontend and backend share the same domain destination
+                // Send the network frame payload containing the authorization vault key
                 const response = await fetch('/predict', {
                     method: 'POST',
+                    headers: { 'Authorization': basicAuthHeader },
                     body: formData
                 });
 
-                if (!response.ok) throw new Error('API Transmission Exception.');
+                if (response.status === 401) throw new Error('Authorization vault mismatch. Please re-login.');
+                if (!response.ok) throw new Error('API Inference Transmission Exception.');
+                
                 const data = await response.json();
 
-                // Update text fields
+                // Hydrate diagnosis output fields
                 diagnosisOutput.textContent = data.diagnosis;
                 confidenceOutput.textContent = `${data.confidence.toFixed(2)}%`;
 
-                // Render dynamic colored distribution curves
+                // Render dynamically scaled colored distribution curves
                 matrixBars.innerHTML = '';
                 Object.entries(data.probabilities).forEach(([className, value]) => {
                     const isTarget = className === data.diagnosis;
@@ -171,6 +364,10 @@
 
                 loadingState.classList.add('hidden');
                 activeState.classList.remove('hidden');
+
+                // Silently pull the updated scan matrices to sync the logs column immediately
+                fetchHistoryRecords(basicAuthHeader);
+
             } catch (err) {
                 alert('Inference Execution Failed: ' + err.message);
                 idleState.classList.remove('hidden');
