@@ -1,3 +1,4 @@
+#src/auth.py
 import os
 from datetime import datetime
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, event

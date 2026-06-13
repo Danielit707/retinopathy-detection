@@ -5,7 +5,7 @@ import torch
 import traceback
 from PIL import Image
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.responses import FileResponse
@@ -29,7 +29,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-security = HTTPBasic()
+# --- THE CRITICAL CACHE POISONING FIX ---
+class NonInteractiveHTTPBasic(HTTPBasic):
+    async def __call__(self, request: Request):
+        try:
+            return await super().__call__(request)
+        except HTTPException as exc:
+            # Prevent the browser from intercepting the 401 error and caching bad credentials
+            if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+                exc.headers["WWW-Authenticate"] = "X-Basic"
+            raise exc
+
+security = NonInteractiveHTTPBasic()
+# ----------------------------------------
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(CURRENT_DIR)
@@ -96,7 +108,7 @@ def get_current_user(credentials: HTTPBasicCredentials = Depends(security), db: 
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Basic"},
+            headers={"WWW-Authenticate": "X-Basic"}, # Ensure X-Basic is enforced here too
         )
     return user
 
@@ -116,7 +128,6 @@ def register(credentials: HTTPBasicCredentials, db: Session = Depends(get_db)):
     db.commit()
     return {"message": "User registered successfully"}
 
-# ADDED: Explicit Login handler to receive credentials and process authentication
 @app.post("/auth/login")
 def login(current_user: User = Depends(get_current_user)):
     return {
