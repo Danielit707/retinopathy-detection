@@ -1,27 +1,22 @@
 import io
 import os
-
 import sys
-# Automatically append the 'src' directory to Python's search path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
 import torch
 import traceback
+from PIL import Image
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-
-from auth import get_db, User, ScanHistory, hash_password, verify_password
-
 from sqlalchemy.orm import Session
-from PIL import Image
 import torchvision.transforms as transforms
 import torchvision.models as models
 
-# Importar componentes de base de datos y autenticación localizados en auth.py
+# Automatically append the current directory to Python's search path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Import database and authentication components from auth.py
 from auth import get_db, User, ScanHistory, hash_password, verify_password
 
 app = FastAPI(title="APTOS 2019 - Retinopathy Detection API (Ensemble & Auth)")
@@ -120,6 +115,14 @@ def register(credentials: HTTPBasicCredentials, db: Session = Depends(get_db)):
     db.add(new_user)
     db.commit()
     return {"message": "User registered successfully"}
+
+# ADDED: Explicit Login handler to receive credentials and process authentication
+@app.post("/auth/login")
+def login(current_user: User = Depends(get_current_user)):
+    return {
+        "message": "Login successful",
+        "user": current_user.email
+    }
 
 # --- RUTA DE HISTORIAL CLINICO POR USUARIO ---
 
