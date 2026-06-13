@@ -31,10 +31,10 @@
         <div class="w-full bg-slate-800/40 border border-slate-800 p-8 rounded-2xl shadow-2xl space-y-6">
             
             <div class="flex border-b border-slate-800 pb-px">
-                <button id="tabLogin" class="flex-1 pb-3 text-sm font-medium border-b-2 border-blue-500 text-blue-400 transition-all font-mono">
+                <button id="tabLogin" class="flex-1 pb-3 text-sm font-medium border-b-2 border-blue-500 text-blue-400 text-center font-mono">
                     SIGN IN
                 </button>
-                <button id="tabRegister" class="flex-1 pb-3 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-all font-mono">
+                <button id="tabRegister" class="flex-1 pb-3 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 text-center font-mono">
                     REGISTER NODE
                 </button>
             </div>
@@ -54,6 +54,8 @@
                     <input type="password" id="authPassword" placeholder="••••••••" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 text-white transition-colors">
                 </div>
             </div>
+
+            <div id="authErrorMsg" class="hidden text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 p-3 rounded-xl font-mono"></div>
 
             <button id="authSubmitBtn" class="w-full bg-blue-600 hover:bg-blue-500 font-medium py-3 rounded-xl transition-all duration-150 shadow-lg shadow-blue-600/10 text-sm">
                 Access Portal
@@ -127,28 +129,29 @@
     </footer>
 
     <script>
-        // High-Level Container Sections
+        // High-Level View Container Nodes
         const welcomeScreen = document.getElementById('welcomeScreen');
         const dashboardWorkspace = document.getElementById('dashboardWorkspace');
         const logoutBtn = document.getElementById('logoutBtn');
 
-        // Auth Form Toggles
+        // Form Switches
         const tabLogin = document.getElementById('tabLogin');
         const tabRegister = document.getElementById('tabRegister');
         const authActionTitle = document.getElementById('authActionTitle');
         const authActionDesc = document.getElementById('authActionDesc');
         const authEmail = document.getElementById('authEmail');
         const authPassword = document.getElementById('authPassword');
+        const authErrorMsg = document.getElementById('authErrorMsg');
         const authSubmitBtn = document.getElementById('authSubmitBtn');
 
-        // Core Image Handling Targets
+        // Imaging Interceptors
         const dropzone = document.getElementById('dropzone');
         const fileInput = document.getElementById('fileInput');
         const preview = document.getElementById('preview');
         const dropzonePrompt = document.getElementById('dropzone-prompt');
         const analyzeBtn = document.getElementById('analyzeBtn');
         
-        // Diagnostic Response States
+        // Output Analytics Nodes
         const idleState = document.getElementById('idleState');
         const loadingState = document.getElementById('loadingState');
         const activeState = document.getElementById('activeState');
@@ -156,26 +159,27 @@
         const confidenceOutput = document.getElementById('confidenceOutput');
         const matrixBars = document.getElementById('matrixBars');
 
-        // History Components
+        // History Logging Tracks
         const historyContainer = document.getElementById('historyContainer');
         const historyCount = document.getElementById('historyCount');
 
-        // State Machine Variables
+        // Application Run States
         let targetedFile = null;
-        let activeTab = 'LOGIN'; // Or 'REGISTER'
-        let basicAuthHeader = localStorage.getItem('hisight_auth');
+        let activeTab = 'LOGIN'; 
+        let basicAuthHeader = null; // Explicitly cleared on system boot to prevent stale auto-login loops
 
-        // Initialize App Configuration State
-        if (basicAuthHeader) {
-            transitionToWorkspace();
-        }
+        // Clear local storage cache on initialization to guarantee clean development loops
+        localStorage.removeItem('hisight_auth');
 
-        /* ================= SEAMLESS TAB CONFIGURATIONS ================= */
+        /* ================= NAVIGATION TAB CONTROLLERS ================= */
         tabLogin.addEventListener('click', () => switchTab('LOGIN'));
         tabRegister.addEventListener('click', () => switchTab('REGISTER'));
 
         function switchTab(target) {
             activeTab = target;
+            authErrorMsg.classList.add('hidden');
+            authErrorMsg.textContent = '';
+            
             if (activeTab === 'LOGIN') {
                 tabLogin.className = "flex-1 pb-3 text-sm font-medium border-b-2 border-blue-500 text-blue-400 text-center font-mono";
                 tabRegister.className = "flex-1 pb-3 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 text-center font-mono";
@@ -191,13 +195,14 @@
             }
         }
 
-        /* ================= AUTHENTICATION SUBSYSTEM SUBMIT ================= */
+        /* ================= AUTH TRANSACTIONS CONTROLLER ================= */
         authSubmitBtn.addEventListener('click', async () => {
             const user = authEmail.value.trim();
             const pass = authPassword.value;
+            authErrorMsg.classList.add('hidden');
 
             if (!user || !pass) {
-                alert('Please provide parameters for both credentials fields.');
+                showAuthError('Please complete all target credentials parameters.');
                 return;
             }
 
@@ -210,12 +215,12 @@
                     });
                     if (!response.ok) {
                         const errData = await response.json();
-                        throw new Error(errData.detail || 'Registration processing exception.');
+                        throw new Error(errData.detail || 'Registration processing anomaly.');
                     }
-                    alert('Registration Successful! Logging into workspace automatically...');
+                    // Success -> Automatically forward credentials to login flow
                     executeAuthSessionLogin(user, pass);
                 } catch (err) {
-                    alert('Registration Rejected: ' + err.message);
+                    showAuthError('Registration Refused: ' + err.message);
                 }
             } else {
                 executeAuthSessionLogin(user, pass);
@@ -226,16 +231,21 @@
             const token = btoa(`${user}:${pass}`);
             const potentialAuthHeader = `Basic ${token}`;
             
-            // Check credentials against history pipeline before revealing the layout
+            // Validate the token credentials against backend endpoints before unlocking anything
             fetchHistoryRecords(potentialAuthHeader).then(isValid => {
                 if (isValid) {
                     basicAuthHeader = potentialAuthHeader;
                     localStorage.setItem('hisight_auth', basicAuthHeader);
                     transitionToWorkspace();
                 } else {
-                    alert('Access Denied: Invalid configuration credentials or unauthorized node.');
+                    showAuthError('Access Denied: Invalid configuration credentials.');
                 }
             });
+        }
+
+        function showAuthError(msg) {
+            authErrorMsg.textContent = msg;
+            authErrorMsg.classList.remove('hidden');
         }
 
         function transitionToWorkspace() {
@@ -245,7 +255,7 @@
             fetchHistoryRecords(basicAuthHeader);
         }
 
-        logoutBtn.addEventListener('click', () => {
+        function forceExitToAuthGateway() {
             localStorage.removeItem('hisight_auth');
             basicAuthHeader = null;
             dashboardWorkspace.style.display = 'none';
@@ -254,10 +264,12 @@
             authEmail.value = '';
             authPassword.value = '';
             switchTab('LOGIN');
-        });
+        }
+
+        logoutBtn.addEventListener('click', forceExitToAuthGateway);
 
 
-        /* ================= HISTORY LOG SYNCHRONIZATION ================= */
+        /* ================= HISTORY LOG DATA RETRIEVAL ================= */
         async function fetchHistoryRecords(authKey) {
             try {
                 const response = await fetch('/history', {
@@ -270,7 +282,7 @@
                 renderHistoryUI(data.records || data);
                 return true;
             } catch (err) {
-                console.error('Network sync exception:', err);
+                console.error('History sync failure:', err);
                 return false;
             }
         }
@@ -281,7 +293,7 @@
                 historyContainer.innerHTML = `
                     <div class="h-full flex flex-col items-center justify-center text-slate-600 text-center space-y-1 py-12">
                         <span>📁</span>
-                        <p class="text-xs">No scan history recorded under this identity.</p>
+                        <p class="text-xs">No scan history recorded under this node identity.</p>
                     </div>`;
                 return;
             }
@@ -302,7 +314,7 @@
         }
 
 
-        /* ================= INFERENCE TRANSMISSION MANAGEMENT ================= */
+        /* ================= CLINICAL IMAGE SCAN CHANNELS ================= */
         dropzone.addEventListener('click', () => fileInput.click());
         fileInput.addEventListener('change', (e) => stageFile(e.target.files[0]));
 
@@ -346,8 +358,11 @@
                     body: formData
                 });
 
-                if (response.status === 401) throw new Error('Authorization session expired. Please re-login.');
-                if (!response.ok) throw new Error('API server returned processing anomaly.');
+                if (response.status === 401) {
+                    forceExitToAuthGateway();
+                    throw new Error('Authorization expired.');
+                }
+                if (!response.ok) throw new Error('API server encountered an inference execution anomaly.');
                 
                 const data = await response.json();
 
@@ -376,13 +391,15 @@
                 loadingState.classList.add('hidden');
                 activeState.classList.remove('hidden');
 
-                // Refresh patient records component list automatically
+                // Auto-refresh history records column logs
                 fetchHistoryRecords(basicAuthHeader);
 
             } catch (err) {
-                alert('Inference Execution Failed: ' + err.message);
-                idleState.classList.remove('hidden');
-                loadingState.classList.add('hidden');
+                console.error(err);
+                if (err.message !== 'Authorization expired.') {
+                    showAuthError('Execution Error: ' + err.message);
+                    forceExitToAuthGateway();
+                }
             } finally {
                 analyzeBtn.disabled = false;
             }
