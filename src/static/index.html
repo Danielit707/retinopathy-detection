@@ -271,21 +271,24 @@
 
         /* ================= HISTORY LOG DATA RETRIEVAL ================= */
         async function fetchHistoryRecords(authKey) {
-            try {
-                const response = await fetch('/history', {
-                    method: 'GET',
-                    headers: { 'Authorization': authKey }
-                });
-                if (!response.ok) return false;
-                
-                const data = await response.json();
-                renderHistoryUI(data.records || data);
-                return true;
-            } catch (err) {
-                console.error('History sync failure:', err);
-                return false;
-            }
-        }
+                    try {
+                        const response = await fetch('/history', {
+                            method: 'GET',
+                            headers: { 'Authorization': authKey }
+                        });
+                        if (!response.ok) return false;
+                        
+                        const data = await response.json();
+                        
+                        // FIX: Target the 'history' array specifically, fallback to empty array
+                        renderHistoryUI(data.history || []); 
+                        
+                        return true;
+                    } catch (err) {
+                        console.error('History sync failure:', err);
+                        return false;
+                    }
+                }
 
         function renderHistoryUI(records) {
             historyCount.textContent = `${records.length} record${records.length === 1 ? '' : 's'}`;
