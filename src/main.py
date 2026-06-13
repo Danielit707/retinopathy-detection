@@ -1,11 +1,21 @@
 import io
 import os
+
+import sys
+# Automatically append the 'src' directory to Python's search path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import torch
 import traceback
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status
+
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+
+from auth import get_db, User, ScanHistory, hash_password, verify_password
+
 from sqlalchemy.orm import Session
 from PIL import Image
 import torchvision.transforms as transforms
