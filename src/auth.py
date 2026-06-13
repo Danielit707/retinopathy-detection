@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, event
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 import bcrypt
 
@@ -14,6 +14,18 @@ engine = create_engine(
     DATABASE_URL, 
     connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {}
 )
+
+# FIX 1: Enable Write-Ahead Logging (WAL) mode for local SQLite testing.
+# This allows multiple Uvicorn worker processes on Hugging Face to safely read 
+# and write to the exact same file simultaneously without desynchronizing or locking.
+if "sqlite" in DATABASE_URL:
+    @event.listens_for(engine, "connect")
+    def set_sqlite_pragma(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL;")
+        cursor.execute("PRAGMA synchronous=NORMAL;")
+        cursor.close()
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -41,14 +53,6 @@ class ScanHistory(Base):
 # Create tables automatically if missing
 Base.metadata.create_all(bind=engine)
 
-# DB Dependency injection session handler
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
 # Modernized secure password routines using native bcrypt directly
 def hash_password(password: str) -> str:
     pwd_bytes = password.encode('utf-8')
@@ -63,3 +67,30 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         return bcrypt.checkpw(plain_bytes, hashed_bytes)
     except Exception:
         return False
+
+# FIX 2: Automatic Testing Seed Account
+# If a Hugging Face container sleeps or restarts during your UI testing, this 
+# ensures you have a master credential ready to go instantly without registering.
+def seed_test_environment():
+    db = SessionLocal()
+    try:
+        test_email = "test@example.com"
+        exists = db.query(User).filter(User.email == test_email).first()
+        if not exists:
+            user = User(email=test_email, hashed_password=hash_password("test1234"))
+            db.add(user)
+            db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+seed_test_environment()
+
+# DB Dependency injection session handler
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
