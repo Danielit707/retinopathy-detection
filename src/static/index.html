@@ -20,43 +20,48 @@
                 <span class="px-3 py-1 text-xs font-mono bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-full">
                     EfficientNet Ensemble Live
                 </span>
-                <button id="logoutBtn" class="hidden text-xs text-slate-400 hover:text-rose-400 border border-slate-800 hover:border-rose-500/20 px-3 py-1.5 rounded-lg transition-colors font-mono">
+                <button id="logoutBtn" style="display: none;" class="text-xs text-slate-400 hover:text-rose-400 border border-slate-800 hover:border-rose-500/20 px-3 py-1.5 rounded-lg transition-colors font-mono">
                     LOGOUT
                 </button>
             </div>
         </div>
     </header>
 
-    <div id="authView" class="max-w-md w-full mx-auto p-6 my-auto">
-        <div class="bg-slate-800/40 border border-slate-800 p-8 rounded-2xl shadow-2xl space-y-6">
-            <div class="text-center">
-                <h2 id="authTitle" class="text-xl font-bold text-slate-200">System Gateway</h2>
-                <p id="authSubtitle" class="text-xs text-slate-400 mt-1">Authenticate to synchronize medical scan histories</p>
+    <div id="welcomeScreen" style="display: flex;" class="flex-1 flex-col items-center justify-center p-6 max-w-md w-full mx-auto my-auto space-y-6">
+        <div class="w-full bg-slate-800/40 border border-slate-800 p-8 rounded-2xl shadow-2xl space-y-6">
+            
+            <div class="flex border-b border-slate-800 pb-px">
+                <button id="tabLogin" class="flex-1 pb-3 text-sm font-medium border-b-2 border-blue-500 text-blue-400 transition-all font-mono">
+                    SIGN IN
+                </button>
+                <button id="tabRegister" class="flex-1 pb-3 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-all font-mono">
+                    REGISTER NODE
+                </button>
+            </div>
+
+            <div>
+                <h2 id="authActionTitle" class="text-lg font-bold text-slate-200">System Gateway</h2>
+                <p id="authActionDesc" class="text-xs text-slate-400 mt-1">Provide secure credentials to establish a processing session.</p>
             </div>
 
             <div class="space-y-4">
                 <div>
-                    <label class="block text-xs font-mono tracking-wider uppercase text-slate-400 mb-1.5">Email Address / Username</label>
+                    <label class="block text-[11px] font-mono tracking-wider uppercase text-slate-400 mb-1.5">User Identity / Email</label>
                     <input type="email" id="authEmail" placeholder="doctor@hospital.com" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 text-white transition-colors">
                 </div>
                 <div>
-                    <label class="block text-xs font-mono tracking-wider uppercase text-slate-400 mb-1.5">Security Password</label>
+                    <label class="block text-[11px] font-mono tracking-wider uppercase text-slate-400 mb-1.5">Security Password</label>
                     <input type="password" id="authPassword" placeholder="••••••••" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 text-white transition-colors">
                 </div>
             </div>
 
-            <div class="space-y-3 pt-2">
-                <button id="authPrimaryBtn" class="w-full bg-blue-600 hover:bg-blue-500 font-medium py-3 rounded-xl transition-all duration-150 shadow-lg shadow-blue-600/10 text-sm">
-                    Access Portal
-                </button>
-                <button id="authToggleBtn" class="w-full text-xs text-slate-400 hover:text-blue-400 transition-colors font-mono py-1">
-                    Need an account? Register system node
-                </button>
-            </div>
+            <button id="authSubmitBtn" class="w-full bg-blue-600 hover:bg-blue-500 font-medium py-3 rounded-xl transition-all duration-150 shadow-lg shadow-blue-600/10 text-sm">
+                Access Portal
+            </button>
         </div>
     </div>
 
-    <main id="appView" class="hidden max-w-6xl w-full mx-auto p-6 grid lg:grid-cols-3 gap-8 items-start my-auto">
+    <main id="dashboardWorkspace" style="display: none;" class="max-w-6xl w-full mx-auto p-6 grid lg:grid-cols-3 gap-8 items-start my-auto">
         
         <section class="bg-slate-800/40 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-6">
             <div>
@@ -122,18 +127,19 @@
     </footer>
 
     <script>
-        // App Views Layout Toggles
-        const authView = document.getElementById('authView');
-        const appView = document.getElementById('appView');
+        // High-Level Container Sections
+        const welcomeScreen = document.getElementById('welcomeScreen');
+        const dashboardWorkspace = document.getElementById('dashboardWorkspace');
         const logoutBtn = document.getElementById('logoutBtn');
 
-        // Auth Controls
-        const authTitle = document.getElementById('authTitle');
-        const authSubtitle = document.getElementById('authSubtitle');
+        // Auth Form Toggles
+        const tabLogin = document.getElementById('tabLogin');
+        const tabRegister = document.getElementById('tabRegister');
+        const authActionTitle = document.getElementById('authActionTitle');
+        const authActionDesc = document.getElementById('authActionDesc');
         const authEmail = document.getElementById('authEmail');
         const authPassword = document.getElementById('authPassword');
-        const authPrimaryBtn = document.getElementById('authPrimaryBtn');
-        const authToggleBtn = document.getElementById('authToggleBtn');
+        const authSubmitBtn = document.getElementById('authSubmitBtn');
 
         // Core Image Handling Targets
         const dropzone = document.getElementById('dropzone');
@@ -150,40 +156,52 @@
         const confidenceOutput = document.getElementById('confidenceOutput');
         const matrixBars = document.getElementById('matrixBars');
 
-        // History UI Components
+        // History Components
         const historyContainer = document.getElementById('historyContainer');
         const historyCount = document.getElementById('historyCount');
 
-        // Internal State Engine variables
+        // State Machine Variables
         let targetedFile = null;
-        let isRegisterState = false;
+        let activeTab = 'LOGIN'; // Or 'REGISTER'
         let basicAuthHeader = localStorage.getItem('hisight_auth');
 
-        // Initialize App Configuration state
+        // Initialize App Configuration State
         if (basicAuthHeader) {
             transitionToWorkspace();
         }
 
-        /* ================= AUTHENTICATION SUBSYSTEM WORKFLOW ================= */
-        authToggleBtn.addEventListener('click', () => {
-            isRegisterState = !isRegisterState;
-            authTitle.textContent = isRegisterState ? "Create System Node" : "System Gateway";
-            authSubtitle.textContent = isRegisterState ? "Register new administrative diagnostic authorization" : "Authenticate to synchronize medical scan histories";
-            authPrimaryBtn.textContent = isRegisterState ? "Register System Node" : "Access Portal";
-            authToggleBtn.textContent = isRegisterState ? "Return to Secure Gateway Login" : "Need an account? Register system node";
-        });
+        /* ================= SEAMLESS TAB CONFIGURATIONS ================= */
+        tabLogin.addEventListener('click', () => switchTab('LOGIN'));
+        tabRegister.addEventListener('click', () => switchTab('REGISTER'));
 
-        authPrimaryBtn.addEventListener('click', async () => {
+        function switchTab(target) {
+            activeTab = target;
+            if (activeTab === 'LOGIN') {
+                tabLogin.className = "flex-1 pb-3 text-sm font-medium border-b-2 border-blue-500 text-blue-400 text-center font-mono";
+                tabRegister.className = "flex-1 pb-3 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 text-center font-mono";
+                authActionTitle.textContent = "System Gateway";
+                authActionDesc.textContent = "Provide secure credentials to establish a processing session.";
+                authSubmitBtn.textContent = "Access Portal";
+            } else {
+                tabRegister.className = "flex-1 pb-3 text-sm font-medium border-b-2 border-blue-500 text-blue-400 text-center font-mono";
+                tabLogin.className = "flex-1 pb-3 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 text-center font-mono";
+                authActionTitle.textContent = "Create System Node";
+                authActionDesc.textContent = "Register a new diagnostic entry point into the secure network database.";
+                authSubmitBtn.textContent = "Register System Node";
+            }
+        }
+
+        /* ================= AUTHENTICATION SUBSYSTEM SUBMIT ================= */
+        authSubmitBtn.addEventListener('click', async () => {
             const user = authEmail.value.trim();
             const pass = authPassword.value;
 
             if (!user || !pass) {
-                alert('Please enter credentials into the target parameters.');
+                alert('Please provide parameters for both credentials fields.');
                 return;
             }
 
-            if (isRegisterState) {
-                // Submit to Registration Endpoint
+            if (activeTab === 'REGISTER') {
                 try {
                     const response = await fetch('/auth/register', {
                         method: 'POST',
@@ -192,54 +210,54 @@
                     });
                     if (!response.ok) {
                         const errData = await response.json();
-                        throw new Error(errData.detail || 'Registration node validation exception.');
+                        throw new Error(errData.detail || 'Registration processing exception.');
                     }
-                    alert('Registration Successful! Logging your profile into security vault...');
-                    executeAuthLogin(user, pass);
+                    alert('Registration Successful! Logging into workspace automatically...');
+                    executeAuthSessionLogin(user, pass);
                 } catch (err) {
                     alert('Registration Rejected: ' + err.message);
                 }
             } else {
-                executeAuthLogin(user, pass);
+                executeAuthSessionLogin(user, pass);
             }
         });
 
-        function executeAuthLogin(user, pass) {
-            // Encode basic credentials parameters safely inside client memory
+        function executeAuthSessionLogin(user, pass) {
             const token = btoa(`${user}:${pass}`);
-            basicAuthHeader = `Basic ${token}`;
+            const potentialAuthHeader = `Basic ${token}`;
             
-            // Validate against history endpoint before completely unlocking pipeline
-            fetchHistoryRecords(basicAuthHeader).then(success => {
-                if (success) {
+            // Check credentials against history pipeline before revealing the layout
+            fetchHistoryRecords(potentialAuthHeader).then(isValid => {
+                if (isValid) {
+                    basicAuthHeader = potentialAuthHeader;
                     localStorage.setItem('hisight_auth', basicAuthHeader);
                     transitionToWorkspace();
                 } else {
-                    alert('Access Denied: Invalid security credentials or unauthorized node.');
-                    basicAuthHeader = null;
+                    alert('Access Denied: Invalid configuration credentials or unauthorized node.');
                 }
             });
         }
 
         function transitionToWorkspace() {
-            authView.classList.add('hidden');
-            appView.classList.remove('hidden');
-            logoutBtn.classList.remove('hidden');
+            welcomeScreen.style.display = 'none';
+            dashboardWorkspace.style.display = 'grid';
+            logoutBtn.style.display = 'block';
             fetchHistoryRecords(basicAuthHeader);
         }
 
         logoutBtn.addEventListener('click', () => {
             localStorage.removeItem('hisight_auth');
             basicAuthHeader = null;
-            appView.classList.add('hidden');
-            logoutBtn.classList.add('hidden');
-            authView.classList.remove('hidden');
+            dashboardWorkspace.style.display = 'none';
+            logoutBtn.style.display = 'none';
+            welcomeScreen.style.display = 'flex';
             authEmail.value = '';
             authPassword.value = '';
+            switchTab('LOGIN');
         });
 
 
-        /* ================= MEDICAL DATA RETRIEVAL WORKFLOW ================= */
+        /* ================= HISTORY LOG SYNCHRONIZATION ================= */
         async function fetchHistoryRecords(authKey) {
             try {
                 const response = await fetch('/history', {
@@ -249,10 +267,10 @@
                 if (!response.ok) return false;
                 
                 const data = await response.json();
-                renderHistoryUI(data.records || data); // Accounts for raw list models structure variations
+                renderHistoryUI(data.records || data);
                 return true;
             } catch (err) {
-                console.error('History Sync Error:', err);
+                console.error('Network sync exception:', err);
                 return false;
             }
         }
@@ -263,7 +281,7 @@
                 historyContainer.innerHTML = `
                     <div class="h-full flex flex-col items-center justify-center text-slate-600 text-center space-y-1 py-12">
                         <span>📁</span>
-                        <p class="text-xs">No active records saved inside this node.</p>
+                        <p class="text-xs">No scan history recorded under this identity.</p>
                     </div>`;
                 return;
             }
@@ -284,12 +302,10 @@
         }
 
 
-        /* ================= CORE DIAGNOSTIC FILE PIPELINE ================= */
-        // Click Routing Trigger
+        /* ================= INFERENCE TRANSMISSION MANAGEMENT ================= */
         dropzone.addEventListener('click', () => fileInput.click());
         fileInput.addEventListener('change', (e) => stageFile(e.target.files[0]));
 
-        // Drag Drop Event Interceptors
         ['dragenter', 'dragover'].forEach(name => {
             dropzone.addEventListener(name, (e) => { e.preventDefault(); dropzone.classList.add('border-blue-500', 'bg-slate-900/60'); }, false);
         });
@@ -312,11 +328,9 @@
             reader.readAsDataURL(file);
         }
 
-        // Execution Request Processing via Authenticated Request Channels
         analyzeBtn.addEventListener('click', async () => {
             if (!targetedFile) return;
 
-            // Toggle Visual Matrix Component States
             idleState.classList.add('hidden');
             activeState.classList.add('hidden');
             loadingState.classList.remove('hidden');
@@ -326,23 +340,20 @@
             formData.append('file', targetedFile);
 
             try {
-                // Send the network frame payload containing the authorization vault key
                 const response = await fetch('/predict', {
                     method: 'POST',
                     headers: { 'Authorization': basicAuthHeader },
                     body: formData
                 });
 
-                if (response.status === 401) throw new Error('Authorization vault mismatch. Please re-login.');
-                if (!response.ok) throw new Error('API Inference Transmission Exception.');
+                if (response.status === 401) throw new Error('Authorization session expired. Please re-login.');
+                if (!response.ok) throw new Error('API server returned processing anomaly.');
                 
                 const data = await response.json();
 
-                // Hydrate diagnosis output fields
                 diagnosisOutput.textContent = data.diagnosis;
                 confidenceOutput.textContent = `${data.confidence.toFixed(2)}%`;
 
-                // Render dynamically scaled colored distribution curves
                 matrixBars.innerHTML = '';
                 Object.entries(data.probabilities).forEach(([className, value]) => {
                     const isTarget = className === data.diagnosis;
@@ -365,7 +376,7 @@
                 loadingState.classList.add('hidden');
                 activeState.classList.remove('hidden');
 
-                // Silently pull the updated scan matrices to sync the logs column immediately
+                // Refresh patient records component list automatically
                 fetchHistoryRecords(basicAuthHeader);
 
             } catch (err) {
